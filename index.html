@@ -644,10 +644,21 @@ function computeClockTime(picks, slotSec, userMap = {}) {
   const managers = {};
   const sorted = [...picks].sort((a, b) => a.pick_no - b.pick_no);
 
+  // Find the timestamp field Sleeper uses for this draft
+  const tsField = sorted.find(p => p.picked_at_timestamp)
+    ? 'picked_at_timestamp'
+    : sorted.find(p => p.metadata?.picked_at)
+    ? 'metadata.picked_at'
+    : null;
+
+  function getTs(pick) {
+    if (tsField === 'picked_at_timestamp') return pick.picked_at_timestamp;
+    if (tsField === 'metadata.picked_at') return pick.metadata?.picked_at;
+    return null;
+  }
+
   sorted.forEach((pick, idx) => {
     const uid = pick.picked_by || pick.roster_id?.toString() || 'unknown';
-
-    // Resolve display name: userMap (league users) > metadata > uid
     const displayName = userMap[uid]
       || pick.metadata?.display_name
       || pick.metadata?.user_name
@@ -661,21 +672,25 @@ function computeClockTime(picks, slotSec, userMap = {}) {
     let usedSec = 0;
 
     if (pick.metadata?.seconds_remaining !== undefined) {
-      // Method 1: Sleeper provides seconds_remaining directly
+      // Best: Sleeper provides seconds_remaining directly
       const remaining = parseInt(pick.metadata.seconds_remaining);
       usedSec = Math.max(0, slotSec - remaining);
-    } else if (pick.picked_at_timestamp) {
-      // Method 2: use pick timestamps — diff between this pick and previous
-      const prevPick = idx > 0 ? sorted[idx - 1] : null;
-      if (prevPick && prevPick.picked_at_timestamp) {
-        const elapsed = Math.round((pick.picked_at_timestamp - prevPick.picked_at_timestamp) / 1000);
-        usedSec = Math.min(slotSec, Math.max(0, elapsed));
-      } else {
-        usedSec = 0; // first pick, no prior to diff against
-      }
     } else {
-      // Method 3: no timing data at all — mark as unknown (0), show note
-      usedSec = 0;
+      // Use timestamp diff between consecutive picks, capped at slotSec.
+      // Capping handles overnight pauses — if gap > 4h, it's treated as
+      // the full timer being used, same as someone who genuinely ran it out.
+      const thisTs = getTs(pick);
+      const prevTs = idx > 0 ? getTs(sorted[idx - 1]) : null;
+
+      if (thisTs && prevTs) {
+        const diffSec = Math.round((thisTs - prevTs) / 1000);
+        // Cap at slotSec — this is the key fix for overnight gaps
+        usedSec = Math.min(slotSec, Math.max(0, diffSec));
+      } else if (thisTs && idx === 0) {
+        usedSec = 0; // first pick ever, nothing to diff against
+      } else {
+        usedSec = 0; // no timestamp data available
+      }
     }
 
     managers[uid].picks++;
@@ -686,7 +701,12 @@ function computeClockTime(picks, slotSec, userMap = {}) {
     m.avgSec = m.picks > 0 ? Math.round(m.totalSec / m.picks) : 0;
   });
 
-  return managers;
+  // Tag whether we had real timing data
+  const hasTimingData = sorted.some(p =>
+    p.metadata?.seconds_remaining !== undefined || getTs(p) !== null
+  );
+
+  return { managers, hasTimingData };
 }
 
 function renderBoard(activeUid = null) {
@@ -748,9 +768,13 @@ function renderBoard(activeUid = null) {
 
   // Show data quality note
   const allZero = sorted.every(m => m.totalSec === 0);
-  const note = allZero
-    ? '⚠ No timing data available for this draft format — Sleeper did not include pick timestamps.'
-    : state.lastPollTime ? `Last updated: ${state.lastPollTime.toLocaleTimeString()}` : '';
+  let note = '';
+  if (!state.hasTimingData || allZero) {
+    note = '⚠ No timing data found — Sleeper did not include pick timestamps for this draft.';
+  } else {
+    const updated = state.lastPollTime ? `Updated ${state.lastPollTime.toLocaleTimeString()}` : '';
+    note = `${updated}  ·  Times capped at pick timer max — overnight gaps count as full timer used.`;
+  }
   document.getElementById('lastUpdated').textContent = note;
 }
 
@@ -802,7 +826,9 @@ async function loadDraft() {
     state.picks = picks;
     state.userMap = userMap || {};
     state.pickTimerSec = Math.round(parseFloat(document.getElementById('pickTimer').value) * 3600);
-    state.managers = computeClockTime(picks, state.pickTimerSec, state.userMap);
+    const { managers, hasTimingData } = computeClockTime(picks, state.pickTimerSec, state.userMap);
+    state.managers = managers;
+    state.hasTimingData = hasTimingData;
     state.lastPollTime = new Date();
 
     renderBoard();
@@ -839,7 +865,9 @@ function startPolling(draftId) {
       state.draft = draft;
       state.picks = picks;
       state.userMap = userMap || state.userMap || {};
-      state.managers = computeClockTime(picks, state.pickTimerSec, state.userMap);
+      const { managers, hasTimingData } = computeClockTime(picks, state.pickTimerSec, state.userMap);
+      state.managers = managers;
+      state.hasTimingData = hasTimingData;
       state.lastPollTime = new Date();
       renderBoard();
 
