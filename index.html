@@ -595,6 +595,7 @@ let state = {
   managers: {},
   picks: [],
   draft: null,
+  userMap: {},
   pickTimerSec: 14400,
   pollInterval: null,
   pollCountdown: null,
@@ -639,30 +640,46 @@ function hideError() {
   document.getElementById('errorBox').style.display = 'none';
 }
 
-function computeClockTime(picks, slotSec) {
+function computeClockTime(picks, slotSec, userMap = {}) {
   const managers = {};
   const sorted = [...picks].sort((a, b) => a.pick_no - b.pick_no);
 
   sorted.forEach((pick, idx) => {
     const uid = pick.picked_by || pick.roster_id?.toString() || 'unknown';
+
+    // Resolve display name: userMap (league users) > metadata > uid
+    const displayName = userMap[uid]
+      || pick.metadata?.display_name
+      || pick.metadata?.user_name
+      || uid;
+
     if (!managers[uid]) {
-      managers[uid] = { uid, name: uid, picks: 0, totalSec: 0, avgSec: 0 };
+      managers[uid] = { uid, name: displayName, picks: 0, totalSec: 0, avgSec: 0 };
     }
+    managers[uid].name = displayName;
 
     let usedSec = 0;
 
-    // Best: seconds_remaining in metadata
     if (pick.metadata?.seconds_remaining !== undefined) {
+      // Method 1: Sleeper provides seconds_remaining directly
       const remaining = parseInt(pick.metadata.seconds_remaining);
       usedSec = Math.max(0, slotSec - remaining);
+    } else if (pick.picked_at_timestamp) {
+      // Method 2: use pick timestamps — diff between this pick and previous
+      const prevPick = idx > 0 ? sorted[idx - 1] : null;
+      if (prevPick && prevPick.picked_at_timestamp) {
+        const elapsed = Math.round((pick.picked_at_timestamp - prevPick.picked_at_timestamp) / 1000);
+        usedSec = Math.min(slotSec, Math.max(0, elapsed));
+      } else {
+        usedSec = 0; // first pick, no prior to diff against
+      }
     } else {
-      // Fallback: use pick timestamps if available
-      usedSec = Math.min(slotSec, 120); // default 2 min if no data
+      // Method 3: no timing data at all — mark as unknown (0), show note
+      usedSec = 0;
     }
 
     managers[uid].picks++;
     managers[uid].totalSec += usedSec;
-    managers[uid].name = pick.metadata?.display_name || pick.metadata?.user_name || uid;
   });
 
   Object.values(managers).forEach(m => {
@@ -728,9 +745,13 @@ function renderBoard(activeUid = null) {
   });
 
   document.getElementById('boardSection').innerHTML = html;
-  document.getElementById('lastUpdated').textContent = state.lastPollTime
-    ? `Last updated: ${state.lastPollTime.toLocaleTimeString()}`
-    : '';
+
+  // Show data quality note
+  const allZero = sorted.every(m => m.totalSec === 0);
+  const note = allZero
+    ? '⚠ No timing data available for this draft format — Sleeper did not include pick timestamps.'
+    : state.lastPollTime ? `Last updated: ${state.lastPollTime.toLocaleTimeString()}` : '';
+  document.getElementById('lastUpdated').textContent = note;
 }
 
 async function fetchDraftData(draftId) {
@@ -742,7 +763,22 @@ async function fetchDraftData(draftId) {
   const draft = await draftRes.json();
   const picks = await picksRes.json();
   if (!draft || !draft.draft_id) throw new Error(`Draft not found (ID: ${draftId}). Double-check the ID from the Sleeper URL.`);
-  return { draft, picks: picks || [] };
+
+  // Fetch user display names via the league users endpoint
+  let userMap = {};
+  try {
+    if (draft.league_id) {
+      const usersRes = await fetch(`https://api.sleeper.app/v1/league/${draft.league_id}/users`);
+      if (usersRes.ok) {
+        const users = await usersRes.json();
+        users.forEach(u => {
+          userMap[u.user_id] = u.display_name || u.username || u.user_id;
+        });
+      }
+    }
+  } catch(e) { /* non-fatal, fall back to metadata names */ }
+
+  return { draft, picks: picks || [], userMap };
 }
 
 async function loadDraft() {
@@ -761,14 +797,13 @@ async function loadDraft() {
     </div>`;
 
   try {
-    const { draft, picks } = await fetchDraftData(draftId);
+    const { draft, picks, userMap } = await fetchDraftData(draftId);
     state.draft = draft;
     state.picks = picks;
+    state.userMap = userMap || {};
     state.pickTimerSec = Math.round(parseFloat(document.getElementById('pickTimer').value) * 3600);
-    state.managers = computeClockTime(picks, state.pickTimerSec);
+    state.managers = computeClockTime(picks, state.pickTimerSec, state.userMap);
     state.lastPollTime = new Date();
-
-    const activeUid = draft.last_picked ? null : null; // best effort
 
     renderBoard();
 
@@ -800,10 +835,11 @@ function startPolling(draftId) {
   state.pollInterval = setInterval(async () => {
     countdown = 60;
     try {
-      const { draft, picks } = await fetchDraftData(draftId);
+      const { draft, picks, userMap } = await fetchDraftData(draftId);
       state.draft = draft;
       state.picks = picks;
-      state.managers = computeClockTime(picks, state.pickTimerSec);
+      state.userMap = userMap || state.userMap || {};
+      state.managers = computeClockTime(picks, state.pickTimerSec, state.userMap);
       state.lastPollTime = new Date();
       renderBoard();
 
