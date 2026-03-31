@@ -733,18 +733,16 @@ function renderBoard(activeUid = null) {
     : '';
 }
 
-const PROXY = 'https://corsproxy.io/?url=';
-
 async function fetchDraftData(draftId) {
   const [draftRes, picksRes] = await Promise.all([
-    fetch(PROXY + encodeURIComponent(`https://api.sleeper.app/v1/draft/${draftId}`)),
-    fetch(PROXY + encodeURIComponent(`https://api.sleeper.app/v1/draft/${draftId}/picks`))
+    fetch(`https://api.sleeper.app/v1/draft/${draftId}`),
+    fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`)
   ]);
-
-  if (!draftRes.ok) throw new Error(`Draft not found (ID: ${draftId}). Check the ID and try again.`);
+  if (!draftRes.ok) throw new Error(`Draft not found (ID: ${draftId}). Double-check the ID from the Sleeper URL.`);
   const draft = await draftRes.json();
   const picks = await picksRes.json();
-  return { draft, picks };
+  if (!draft || !draft.draft_id) throw new Error(`Draft not found (ID: ${draftId}). Double-check the ID from the Sleeper URL.`);
+  return { draft, picks: picks || [] };
 }
 
 async function loadDraft() {
