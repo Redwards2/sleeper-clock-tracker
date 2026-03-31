@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sleeper Draft Clock Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0f12;
+    --bg2: #13161b;
+    --bg3: #1a1e26;
+    --border: #252a35;
+    --border2: #2e3545;
+    --text: #e8eaf0;
+    --muted: #6b7385;
+    --accent: #4ecca3;
+    --accent2: #f0a500;
+    --danger: #e85c5c;
+    --font-head: 'Barlow Condensed', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-head);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 1.5rem 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    position: sticky;
+    top: 0;
+    background: rgba(13,15,18,0.95);
+    backdrop-filter: blur(8px);
+    z-index: 100;
+  }
+
+  .logo-mark {
+    width: 36px;
+    height: 36px;
+    border: 1.5px solid var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: -1px;
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  header h1 span { color: var(--accent); }
+
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .live-indicator {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+  }
+
+  .live-indicator.visible { display: flex; }
+
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+  }
+
+  .poll-timer {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  main { max-width: 960px; margin: 0 auto; padding: 2rem; }
+
+  /* Input panel */
+  .input-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .input-panel h2 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .input-group {
+    flex: 1;
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .input-group label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  input[type="text"], input[type="number"] {
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    padding: 9px 12px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.15s;
+  }
+
+  input[type="text"]:focus, input[type="number"]:focus {
+    border-color: var(--accent);
+  }
+
+  input::placeholder { color: var(--muted); }
+
+  .btn-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+
+  button {
+    padding: 9px 20px;
+    font-family: var(--font-head);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: 1px solid;
+    transition: all 0.15s;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0d0f12;
+  }
+
+  .btn-primary:hover { background: #3db890; border-color: #3db890; }
+
+  .btn-secondary {
+    background: transparent;
+    border-color: var(--border2);
+    color: var(--muted);
+  }
+
+  .btn-secondary:hover { border-color: var(--text); color: var(--text); }
+
+  .btn-danger {
+    background: transparent;
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .btn-danger:hover { background: var(--danger); color: #0d0f12; }
+
+  .hint {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 0.75rem;
+    line-height: 1.6;
+  }
+
+  .hint a { color: var(--accent); text-decoration: none; }
+  .hint a:hover { text-decoration: underline; }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 2rem;
+  }
+
+  .stat-block {
+    background: var(--bg2);
+    padding: 1rem 1.25rem;
+  }
+
+  .stat-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .stat-val {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text);
+  }
+
+  .stat-val.accent { color: var(--accent); }
+  .stat-val.warn { color: var(--accent2); }
+
+  /* Leaderboard */
+  .board-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.75rem;
+  }
+
+  .board-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .board-sort {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .manager-row {
+    display: grid;
+    grid-template-columns: 28px 36px 1fr auto 160px auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    background: var(--bg2);
+    transition: background 0.2s;
+    animation: fadeIn 0.3s ease both;
+  }
+
+  .manager-row:last-child { border-bottom: 1px solid var(--border); }
+  .manager-row:hover { background: var(--bg3); }
+
+  .manager-row.on-clock {
+    background: rgba(78, 204, 163, 0.06);
+    border-color: var(--accent);
+    border-bottom: 1px solid var(--accent);
+    z-index: 1;
+    position: relative;
+  }
+
+  .manager-row.on-clock + .manager-row {
+    border-top: none;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .rank-num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  .rank-num.gold { color: var(--accent2); font-weight: 500; }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid;
+    flex-shrink: 0;
+  }
+
+  .name-cell { min-width: 0; }
+
+  .mgr-name {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .on-clock-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 2px 7px;
+    flex-shrink: 0;
+  }
+
+  .picks-val {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .bar-cell { display: flex; align-items: center; gap: 8px; }
+
+  .bar-track {
+    flex: 1;
+    height: 4px;
+    background: var(--border2);
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    transition: width 0.6s ease;
+  }
+
+  .time-cell {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    text-align: right;
+    white-space: nowrap;
+    min-width: 80px;
+  }
+
+  .time-cell.top { color: var(--accent2); }
+
+  .live-timer {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 1.2s infinite;
+    flex-shrink: 0;
+  }
+
+  /* Empty/error states */
+  .state-box {
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    padding: 3rem 2rem;
+    text-align: center;
+  }
+
+  .state-icon {
+    font-size: 32px;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+  }
+
+  .state-title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.5rem;
+    color: var(--text);
+  }
+
+  .state-sub {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.7;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+
+  .error-box {
+    border: 1px solid var(--danger);
+    background: rgba(232, 92, 92, 0.06);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--danger);
+    display: none;
+  }
+
+  .last-updated {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 1.5rem;
+  }
+
+  /* Progress bar at top */
+  .draft-progress {
+    background: var(--border);
+    height: 3px;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .draft-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.6s ease;
+  }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 1.5rem 2rem;
+    margin-top: 3rem;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  @media (max-width: 640px) {
+    main { padding: 1rem; }
+    header { padding: 1rem; }
+    .manager-row {
+      grid-template-columns: 24px 32px 1fr auto;
+      gap: 8px;
+    }
+    .bar-cell { display: none; }
+    .time-cell { font-size: 13px; min-width: 60px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">SC</div>
+  <h1>Sleeper <span>Clock</span> Tracker</h1>
+  <div class="header-right">
+    <div class="live-indicator" id="liveIndicator">
+      <div class="live-dot"></div>
+      LIVE
+    </div>
+    <div class="poll-timer" id="pollTimer"></div>
+  </div>
+</header>
+
+<main>
+  <div class="input-panel">
+    <h2>Draft Setup</h2>
+    <div class="input-row" style="margin-bottom: 12px;">
+      <div class="input-group">
+        <label>Sleeper Draft ID</label>
+        <input type="text" id="draftId" placeholder="e.g. 1198368888157167616" />
+      </div>
+      <div class="input-group" style="max-width: 160px;">
+        <label>Pick timer (hours)</label>
+        <input type="number" id="pickTimer" value="4" min="0.5" max="24" step="0.5" />
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-primary" id="loadBtn">Load Draft</button>
+      <button class="btn-secondary" id="demoBtn">Demo Mode</button>
+      <button class="btn-danger" id="stopBtn" style="display:none">Stop Polling</button>
+    </div>
+    <div class="hint" id="hintText">
+      Find your draft ID in Sleeper: open your draft, copy the long number from the URL.<br>
+      Example: sleeper.com/draft/nfl/<strong style="color:var(--accent)">1198368888157167616</strong><br>
+      The tracker will auto-refresh every 60 seconds while the draft is in progress.
+    </div>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div id="statsSection" style="display:none">
+    <div class="draft-progress">
+      <div class="draft-progress-fill" id="progressFill" style="width:0%"></div>
+    </div>
+    <div class="stats-row">
+      <div class="stat-block">
+        <div class="stat-label">Status</div>
+        <div class="stat-val accent" id="statStatus">—</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-label">Picks made</div>
+        <div class="stat-val" id="statPicks">—</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-label">Total picks</div>
+        <div class="stat-val" id="statTotal">—</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-label">Avg per pick</div>
+        <div class="stat-val warn" id="statAvg">—</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-label">Slowest mgr</div>
+        <div class="stat-val warn" id="statSlowest">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="boardSection">
+    <div class="state-box">
+      <div class="state-icon">⏱</div>
+      <div class="state-title">No draft loaded</div>
+      <div class="state-sub">Enter your Sleeper draft ID above and click Load Draft, or try Demo Mode to see a preview with sample data.</div>
+    </div>
+  </div>
+
+  <div class="last-updated" id="lastUpdated"></div>
+</main>
+
+<footer>
+  Sleeper Clock Tracker &nbsp;·&nbsp; Uses the public Sleeper API &nbsp;·&nbsp; No data is stored
+</footer>
+
+<script>
+const COLORS = [
+  { bg: '#1a3a2e', border: '#2d6b50', text: '#4ecca3' },
+  { bg: '#3a1a1a', border: '#7a2f2f', text: '#e07070' },
+  { bg: '#1a2a3a', border: '#2f5070', text: '#6aabdc' },
+  { bg: '#2a2a1a', border: '#606020', text: '#c8c050' },
+  { bg: '#2a1a3a', border: '#5a2f7a', text: '#b07acc' },
+  { bg: '#1a3a3a', border: '#2f7070', text: '#60c0c0' },
+  { bg: '#3a2a1a', border: '#7a5020', text: '#d09040' },
+  { bg: '#3a1a2a', border: '#7a2f5a', text: '#d070a0' },
+  { bg: '#1a2a1a', border: '#2f602f', text: '#70c070' },
+  { bg: '#2a1a1a', border: '#602020', text: '#c06060' },
+  { bg: '#1a1a3a', border: '#303070', text: '#7070d0' },
+  { bg: '#2a3a1a', border: '#507020', text: '#a0c050' },
+];
+
+let state = {
+  managers: {},
+  picks: [],
+  draft: null,
+  pickTimerSec: 14400,
+  pollInterval: null,
+  pollCountdown: null,
+  lastPollTime: null,
+  isDemo: false,
+};
+
+function colorFor(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return COLORS[h % COLORS.length];
+}
+
+function initials(name) {
+  const p = name.split(/[\s_\-\.]/);
+  return p.length > 1 ? (p[0][0] + p[1][0]).toUpperCase() : name.slice(0,2).toUpperCase();
+}
+
+function fmtTime(sec) {
+  if (sec === 0) return '0m 00s';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m`;
+  return `${m}m ${String(s).padStart(2,'0')}s`;
+}
+
+function fmtTimeShort(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorBox');
+  el.textContent = '// ERROR: ' + msg;
+  el.style.display = 'block';
+}
+
+function hideError() {
+  document.getElementById('errorBox').style.display = 'none';
+}
+
+function computeClockTime(picks, slotSec) {
+  const managers = {};
+  const sorted = [...picks].sort((a, b) => a.pick_no - b.pick_no);
+
+  sorted.forEach((pick, idx) => {
+    const uid = pick.picked_by || pick.roster_id?.toString() || 'unknown';
+    if (!managers[uid]) {
+      managers[uid] = { uid, name: uid, picks: 0, totalSec: 0, avgSec: 0 };
+    }
+
+    let usedSec = 0;
+
+    // Best: seconds_remaining in metadata
+    if (pick.metadata?.seconds_remaining !== undefined) {
+      const remaining = parseInt(pick.metadata.seconds_remaining);
+      usedSec = Math.max(0, slotSec - remaining);
+    } else {
+      // Fallback: use pick timestamps if available
+      usedSec = Math.min(slotSec, 120); // default 2 min if no data
+    }
+
+    managers[uid].picks++;
+    managers[uid].totalSec += usedSec;
+    managers[uid].name = pick.metadata?.display_name || pick.metadata?.user_name || uid;
+  });
+
+  Object.values(managers).forEach(m => {
+    m.avgSec = m.picks > 0 ? Math.round(m.totalSec / m.picks) : 0;
+  });
+
+  return managers;
+}
+
+function renderBoard(activeUid = null) {
+  const mgrs = Object.values(state.managers);
+  if (!mgrs.length) return;
+
+  const sorted = [...mgrs].sort((a, b) => b.totalSec - a.totalSec);
+  const maxSec = sorted[0]?.totalSec || 1;
+  const totalSec = mgrs.reduce((s, m) => s + m.totalSec, 0);
+  const totalPicks = state.picks.length;
+  const totalSlots = state.draft ? (state.draft.settings?.teams || 12) * (state.draft.settings?.rounds || 26) : mgrs.length * 26;
+
+  // Stats
+  document.getElementById('statsSection').style.display = 'block';
+  document.getElementById('statStatus').textContent = (state.draft?.status || 'active').toUpperCase();
+  document.getElementById('statPicks').textContent = totalPicks;
+  document.getElementById('statTotal').textContent = totalSlots;
+  document.getElementById('statAvg').textContent = totalPicks > 0 ? fmtTimeShort(Math.round(totalSec / totalPicks)) : '—';
+  document.getElementById('statSlowest').textContent = sorted[0] ? sorted[0].name.slice(0,10) : '—';
+
+  const pct = Math.min(100, Math.round((totalPicks / totalSlots) * 100));
+  document.getElementById('progressFill').style.width = pct + '%';
+
+  // Board
+  const colors = ['#f0a500', '#9ca3af', '#cd7f32'];
+  let html = `
+    <div class="board-header">
+      <div class="board-title">Time on the clock — ranked</div>
+      <div class="board-sort">${sorted.length} managers · ${totalPicks} picks logged</div>
+    </div>`;
+
+  sorted.forEach((m, i) => {
+    const isActive = m.uid === activeUid;
+    const c = colorFor(m.name);
+    const barPct = Math.round((m.totalSec / maxSec) * 100);
+    const barColor = isActive ? 'var(--accent)' : (i === 0 ? '#f0a500' : '#3266ad');
+
+    html += `
+      <div class="manager-row ${isActive ? 'on-clock' : ''}" style="animation-delay:${i * 30}ms">
+        <div class="rank-num ${i === 0 ? 'gold' : ''}">${i + 1}</div>
+        <div class="avatar" style="background:${c.bg};border-color:${c.border};color:${c.text}">${initials(m.name)}</div>
+        <div class="name-cell">
+          <div class="mgr-name">
+            ${m.name}
+            ${isActive ? '<span class="on-clock-badge"><span class="live-timer"></span>ON CLOCK</span>' : ''}
+          </div>
+        </div>
+        <div class="picks-val">${m.picks} picks</div>
+        <div class="bar-cell">
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${barPct}%;background:${barColor}"></div>
+          </div>
+        </div>
+        <div class="time-cell ${i === 0 ? 'top' : ''}">${fmtTime(m.totalSec)}</div>
+      </div>`;
+  });
+
+  document.getElementById('boardSection').innerHTML = html;
+  document.getElementById('lastUpdated').textContent = state.lastPollTime
+    ? `Last updated: ${state.lastPollTime.toLocaleTimeString()}`
+    : '';
+}
+
+const PROXY = 'https://corsproxy.io/?url=';
+
+async function fetchDraftData(draftId) {
+  const [draftRes, picksRes] = await Promise.all([
+    fetch(PROXY + encodeURIComponent(`https://api.sleeper.app/v1/draft/${draftId}`)),
+    fetch(PROXY + encodeURIComponent(`https://api.sleeper.app/v1/draft/${draftId}/picks`))
+  ]);
+
+  if (!draftRes.ok) throw new Error(`Draft not found (ID: ${draftId}). Check the ID and try again.`);
+  const draft = await draftRes.json();
+  const picks = await picksRes.json();
+  return { draft, picks };
+}
+
+async function loadDraft() {
+  const draftId = document.getElementById('draftId').value.trim();
+  if (!draftId) { showError('Please enter a draft ID.'); return; }
+
+  hideError();
+  stopPolling();
+  state.isDemo = false;
+
+  document.getElementById('boardSection').innerHTML = `
+    <div class="state-box">
+      <div class="state-icon">⏳</div>
+      <div class="state-title">Loading draft...</div>
+      <div class="state-sub">${draftId}</div>
+    </div>`;
+
+  try {
+    const { draft, picks } = await fetchDraftData(draftId);
+    state.draft = draft;
+    state.picks = picks;
+    state.pickTimerSec = Math.round(parseFloat(document.getElementById('pickTimer').value) * 3600);
+    state.managers = computeClockTime(picks, state.pickTimerSec);
+    state.lastPollTime = new Date();
+
+    const activeUid = draft.last_picked ? null : null; // best effort
+
+    renderBoard();
+
+    if (draft.status === 'in_progress') {
+      startPolling(draftId);
+    }
+  } catch(e) {
+    showError(e.message);
+    document.getElementById('boardSection').innerHTML = `
+      <div class="state-box">
+        <div class="state-icon">✕</div>
+        <div class="state-title">Failed to load</div>
+        <div class="state-sub">${e.message}</div>
+      </div>`;
+  }
+}
+
+function startPolling(draftId) {
+  document.getElementById('liveIndicator').classList.add('visible');
+  document.getElementById('stopBtn').style.display = 'inline-block';
+
+  let countdown = 60;
+  state.pollCountdown = setInterval(() => {
+    countdown--;
+    document.getElementById('pollTimer').textContent = `refresh in ${countdown}s`;
+    if (countdown <= 0) countdown = 60;
+  }, 1000);
+
+  state.pollInterval = setInterval(async () => {
+    countdown = 60;
+    try {
+      const { draft, picks } = await fetchDraftData(draftId);
+      state.draft = draft;
+      state.picks = picks;
+      state.managers = computeClockTime(picks, state.pickTimerSec);
+      state.lastPollTime = new Date();
+      renderBoard();
+
+      if (draft.status === 'complete') {
+        stopPolling();
+        document.getElementById('statStatus').textContent = 'COMPLETE';
+      }
+    } catch(e) {
+      // Silent fail on poll, don't disrupt the UI
+    }
+  }, 60000);
+}
+
+function stopPolling() {
+  if (state.pollInterval) { clearInterval(state.pollInterval); state.pollInterval = null; }
+  if (state.pollCountdown) { clearInterval(state.pollCountdown); state.pollCountdown = null; }
+  document.getElementById('liveIndicator').classList.remove('visible');
+  document.getElementById('pollTimer').textContent = '';
+  document.getElementById('stopBtn').style.display = 'none';
+}
+
+// Demo mode
+function loadDemo() {
+  stopPolling();
+  state.isDemo = true;
+  hideError();
+
+  const demoManagers = {
+    'u1': { uid:'u1', name:'NOxRAGRETZ', picks:8, totalSec:10920, avgSec:1365 },
+    'u2': { uid:'u2', name:'cash3', picks:8, totalSec:13140, avgSec:1642 },
+    'u3': { uid:'u3', name:'MfTunechii', picks:8, totalSec:9600, avgSec:1200 },
+    'u4': { uid:'u4', name:'KeithRichards', picks:8, totalSec:7560, avgSec:945 },
+    'u5': { uid:'u5', name:'ShawnJuan', picks:8, totalSec:6300, avgSec:787 },
+    'u6': { uid:'u6', name:'JennAy01', picks:8, totalSec:5400, avgSec:675 },
+    'u7': { uid:'u7', name:'Canuckaroo2', picks:8, totalSec:4320, avgSec:540 },
+    'u8': { uid:'u8', name:'CoolMc2521', picks:8, totalSec:3240, avgSec:405 },
+    'u9': { uid:'u9', name:'RUBIO', picks:8, totalSec:2700, avgSec:337 },
+    'u10': { uid:'u10', name:'Redwards', picks:8, totalSec:2160, avgSec:270 },
+    'u11': { uid:'u11', name:'Carney03', picks:8, totalSec:1800, avgSec:225 },
+    'u12': { uid:'u12', name:'zuesyP', picks:8, totalSec:1080, avgSec:135 },
+  };
+
+  state.managers = demoManagers;
+  state.picks = Array(96).fill(0);
+  state.lastPollTime = new Date();
+  state.draft = { status: 'in_progress', settings: { teams: 12, rounds: 26 } };
+
+  document.getElementById('statsSection').style.display = 'block';
+  document.getElementById('statStatus').textContent = 'DEMO';
+  document.getElementById('statPicks').textContent = '96';
+  document.getElementById('statTotal').textContent = '312';
+  document.getElementById('statAvg').textContent = '14m';
+  document.getElementById('statSlowest').textContent = 'cash3';
+  document.getElementById('progressFill').style.width = '31%';
+
+  renderBoard('u1');
+
+  document.getElementById('lastUpdated').textContent = 'Demo mode — showing sample data from your league';
+}
+
+document.getElementById('loadBtn').addEventListener('click', loadDraft);
+document.getElementById('demoBtn').addEventListener('click', loadDemo);
+document.getElementById('stopBtn').addEventListener('click', stopPolling);
+document.getElementById('draftId').addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadDraft();
+});
+</script>
+</body>
+</html>
